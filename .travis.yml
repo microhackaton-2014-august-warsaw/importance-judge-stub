@@ -1,0 +1,12 @@
+language: groovy
+jdk:
+- oraclejdk8
+
+script:
+- ./gradlew build --info --stacktrace
+
+env:
+- TERM=dumb
+
+after_success:
+- ./gradlew build publish -PbuildNr=$TRAVIS_BUILD_NUMBER --info --stacktrace

@@ -1,0 +1,23 @@
+
+# Build, etc.
+build
+/bin
+.gradle
+
+
+# Intellij IDEA
+.idea/
+*.iml
+*.iws
+
+# MacOS Specific
+.DS_Store
+
+# Eclipse
+.project
+.settings
+.classpath
+
+# Other
+commitHash.txt
+logs

@@ -1,0 +1,129 @@
+buildscript {
+    repositories {
+        mavenLocal()
+        jcenter()
+    }
+    dependencies {
+        classpath 'com.jfrog.bintray.gradle:gradle-bintray-plugin:+'
+        classpath 'com.ofg:uptodate-gradle-plugin:+'
+    }
+}
+
+apply plugin: 'groovy'
+apply plugin: 'maven-publish'
+apply plugin: 'com.jfrog.bintray'
+apply plugin: 'uptodate'
+
+sourceCompatibility = 1.7
+
+repositories {
+    mavenLocal()
+    jcenter()
+    mavenCentral()
+}
+
+ext {
+    versionPrefix = "CD"
+    buildNrLoc = project.hasProperty('buildNr') ? "${buildNr}" : "000"
+    currentVersion = "${versionPrefix}-${buildNrLoc}"
+
+    mainClass = 'com.ofg.BootMicroserviceStubApplication'
+
+    curatorVersion = '2.6.0'
+    groovyVersion = '2.3.6'
+    spockVersion = '0.7-groovy-2.0'
+}
+
+group = 'com.ofg'
+description = 'Importance Judge Stub'
+version = currentVersion
+
+dependencies {
+    compile "org.apache.curator:curator-x-discovery:$curatorVersion"
+    compile "org.apache.curator:curator-test:$curatorVersion"
+    compile "org.codehaus.groovy:groovy-all:$groovyVersion:indy"
+    compile 'org.reflections:reflections:0.9.8'
+    compile 'com.github.tomakehurst:wiremock:1.47'
+
+    testCompile("org.spockframework:spock-core:$spockVersion") {
+        exclude group: 'org.codehaus.groovy', module: 'groovy-all'
+    }
+}
+
+task wrapper(type: Wrapper) {
+    gradleVersion = '2.0'
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+
+            artifact sourcesJar {
+                classifier "sources"
+            }
+
+            artifact fatJar {
+                classifier "shadow"
+            }
+
+            artifact fatJarWithoutGroovy {
+                classifier "groovyless-shadow"
+            }
+        }
+    }
+
+    repositories {
+        maven {
+            credentials {
+                username 'deployment'
+                password 'deployment123'
+            }
+            url 'http://nexus.microhackathon.pl/content/repositories/releases/'
+        }
+    }
+}
+
+task sourcesJar(type: Jar, dependsOn: build) {
+    classifier = 'sources'
+    from sourceSets.main.allSource
+}
+
+task fatJar(type: Jar, dependsOn: build) {
+    classifier = "shadow"
+
+    from files(sourceSets.main.output.classesDir)
+    from configurations.runtime.asFileTree.files.collect { zipTree(it) }
+
+    manifest {
+        attributes 'Main-Class': mainClass
+    }
+}
+
+configurations {
+    groovyless
+
+    groovyless {
+        extendsFrom runtime
+        exclude([group: 'org.codehaus.groovy', name: 'groovy-all'])
+    }
+}
+
+task fatJarWithoutGroovy(type: Jar, dependsOn: build) {
+    classifier "groovyless-shadow"
+
+    from files(sourceSets.main.output.classesDir)
+    from configurations.groovyless.asFileTree.files.collect {
+        zipTree(it)
+    }
+
+    manifest {
+        attributes 'Main-Class': mainClass
+    }
+}
+
+[sourcesJar, fatJar, fatJarWithoutGroovy]*.onlyIf { artifactTask ->
+    project.gradle.startParameter.taskNames.any {
+        it == artifactTask.name || project.tasks.findByName(it).group == 'publishing'
+    }
+}
