@@ -1,9 +1,9 @@
 boot-microservice
 =======================
 
-![](https://api.travis-ci.org/microhackaton/importance-judge.svg)
+![](https://api.travis-ci.org/microhackaton/importance-judge-stub.svg)
 
-https://travis-ci.org/microhackaton/importance-judge
+https://travis-ci.org/microhackaton/importance-judge-stub
 
 API:
 
