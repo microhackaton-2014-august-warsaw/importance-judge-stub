@@ -1,0 +1,8 @@
+{
+    "pl": {
+        "this": "pl/microhackaton/importance-judge",
+        "dependencies": {
+            "gui" : "pl/microhackaton/gui"
+        }
+    }
+}

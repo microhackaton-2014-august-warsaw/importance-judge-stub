@@ -1,129 +1,196 @@
 buildscript {
     repositories {
         mavenLocal()
+        maven { url "http://repo.spring.io/libs-snapshot" }
+        mavenCentral()
         jcenter()
     }
     dependencies {
-        classpath 'com.jfrog.bintray.gradle:gradle-bintray-plugin:+'
-        classpath 'com.ofg:uptodate-gradle-plugin:+'
+        classpath 'org.springframework.boot:spring-boot-gradle-plugin:1.1.4.RELEASE'
+        classpath 'com.ofg:uptodate-gradle-plugin:0.0.5'
+        classpath 'com.ofg:micro-deps-gradle-plugin:0.0.2'
+
+        if(project.hasProperty("coverage")) {
+            classpath 'org.kt3k.gradle.plugin:coveralls-gradle-plugin:1.0.2'
+        }
     }
 }
 
 apply plugin: 'groovy'
-apply plugin: 'maven-publish'
-apply plugin: 'com.jfrog.bintray'
+apply plugin: 'spring-boot'
+apply plugin: 'maven'
 apply plugin: 'uptodate'
-
-sourceCompatibility = 1.7
-
-repositories {
-    mavenLocal()
-    jcenter()
-    mavenCentral()
-}
+apply plugin: 'com.ofg.infrastructure.stubrunner'
+apply plugin: 'eclipse'
 
 ext {
     versionPrefix = "CD"
     buildNrLoc = project.hasProperty('buildNr') ? "${buildNr}" : "000"
     currentVersion = "${versionPrefix}-${buildNrLoc}"
-
-    mainClass = 'com.ofg.BootMicroserviceStubApplication'
-
-    curatorVersion = '2.6.0'
+    artifactGroupId = "pl.microhackaton"
+    serverPort = 8989
+    
     groovyVersion = '2.3.6'
     spockVersion = '0.7-groovy-2.0'
+    springBootVersion = '1.1.4.RELEASE'
+    springVersion = '4.0.6.RELEASE'
+    jacksonMapper = '1.9.13'
+    aspectjVersion = '1.8.1'
+    microDepsSpringVersion = '0.2.1'
+
+    stubRepositoryUrl = 'http://nexus.microhackathon.pl/content/groups/public/'
+    zookeeperPort = 2181
+    zookeeperMockPort = 18081
 }
 
-group = 'com.ofg'
-description = 'Importance Judge Stub'
-version = currentVersion
+uploadArchives {
+    repositories.mavenDeployer {
+        repository(url: "http://nexus.microhackathon.pl/content/repositories/releases/") {
+            authentication(userName: 'deployment', password: 'deployment123')
+        }
+        pom.version = currentVersion
+        pom.artifactId = project.name
+        pom.groupId = artifactGroupId
+    }
+}
+
+task deployToAws(dependsOn: uploadArchives) << {
+    String json = """{"artifactId": "${project.name}", "groupId": "$artifactGroupId","version": "$currentVersion",
+                     "jvmParams": "-Dspring.profiles.active=prod -Dserver.port=$serverPort -Dservice.resolver.url=zookeeper.microhackathon.pl:2181"}"""
+    println "Sending the following json [$json]"
+    new groovyx.net.http.HTTPBuilder('http://54.73.40.79:18081/deploy').post([body: json, headers: ['Content-Type': 'application/json']])
+}
+
+task addHashFile << {
+    String gitCmd = "git log --pretty=format:'%H' -n 1"
+    def proc = gitCmd.execute()
+    proc.waitFor()
+    new File("commitHash.txt").withWriter { it << proc.in.text }
+}
+
+jar {
+    dependsOn addHashFile
+    from "commitHash.txt"
+}
+
+project.gradle.projectsEvaluated {
+    applicationDefaultJvmArgs = [ "-noverify", "-Dspring.profiles.active=${project.gradle.startParameter.systemPropertiesArgs['spring.profiles.active']}"]
+}
+
+//Workaround for the issue with Java 8u11 and 7u65 - http://www.infoq.com/news/2014/08/Java8-U11-Broke-Tools
+test {
+     jvmArgs '-noverify'
+}
+applicationDefaultJvmArgs = [ "-noverify" ]
+
+repositories {
+    mavenLocal()
+    maven { url 'http://repository.codehaus.org' }
+    maven { url 'http://repo.spring.io/milestone' }
+    mavenCentral()
+    jcenter()
+}
 
 dependencies {
-    compile "org.apache.curator:curator-x-discovery:$curatorVersion"
-    compile "org.apache.curator:curator-test:$curatorVersion"
+    compile "org.springframework.boot:spring-boot-starter-web:$springBootVersion"
+    compile "org.springframework.boot:spring-boot-starter-actuator:$springBootVersion"
+    compile "org.springframework:spring-context-support:$springVersion"
     compile "org.codehaus.groovy:groovy-all:$groovyVersion:indy"
-    compile 'org.reflections:reflections:0.9.8'
-    compile 'com.github.tomakehurst:wiremock:1.47'
+    compile 'com.fasterxml.jackson.core:jackson-databind:2.4.1.3'
+    compile "org.codehaus.jackson:jackson-mapper-asl:$jacksonMapper"
+    compile "org.codehaus.jackson:jackson-core-asl:$jacksonMapper"
+    compile 'com.google.guava:guava:17.0'
+    compile 'org.apache.commons:commons-lang3:3.3.2'
+    compile 'org.apache.tomcat.embed:tomcat-embed-el:8.0.9'
+    compile 'com.jayway.jsonpath:json-path-assert:0.9.1'
+    compile 'org.yaml:snakeyaml:1.13'
+    compile 'javax.validation:validation-api:1.1.0.Final'
+    compile 'org.hibernate:hibernate-validator:5.1.2.Final'
+    compile "org.aspectj:aspectjrt:$aspectjVersion"
+    compile 'org.apache.ivy:ivy:2.3.0'
+    compile "com.mangofactory:swagger-springmvc:0.8.5"
+    compile 'org.codehaus.gpars:gpars:1.2.1'
+    compile 'net.sf.ehcache:ehcache:2.8.3'
+    // microservices
+    compile("com.ofg:micro-deps-spring-config:$microDepsSpringVersion") {
+        exclude group: 'org.slf4j'
+        exclude group: 'log4j'
+    }
+    compile 'com.ofg:micro-infra-spring:0.0.3'
 
+    runtime "cglib:cglib-nodep:3.1"
+    runtime "org.objenesis:objenesis:2.1" // allows mocking of classes without default constructor (together with CGLIB)
+    runtime 'org.aspectj:aspectjweaver:1.8.1'
+
+    testCompile 'junit:junit:4.11'
+    testCompile 'com.jayway.awaitility:awaitility:1.6.1'
+    testCompile 'org.hamcrest:hamcrest-library:1.3'
     testCompile("org.spockframework:spock-core:$spockVersion") {
         exclude group: 'org.codehaus.groovy', module: 'groovy-all'
     }
+    testRuntime("org.spockframework:spock-spring:$spockVersion") {
+        exclude group: 'org.spockframework', module: 'spock-core'
+    }
+    testCompile "org.springframework:spring-test:$springVersion"
+    testCompile 'com.github.tomakehurst:wiremock:1.47'
+    testCompile("com.ofg:micro-deps-spring-test-config:$microDepsSpringVersion") {
+        exclude group: 'org.slf4j'
+        exclude group: 'log4j'
+    }
+}
+
+tasks.withType(GroovyCompile) {
+    groovyOptions.optimizationOptions.indy = true
+   
 }
 
 task wrapper(type: Wrapper) {
     gradleVersion = '2.0'
 }
 
-publishing {
-    publications {
-        mavenJava(MavenPublication) {
-            from components.java
+if(project.hasProperty("coverage")) {
+    apply plugin: 'codenarc'
+    apply plugin: 'jacoco'
+    apply plugin: 'sonar-runner'
+    apply plugin: 'com.github.kt3k.coveralls'
 
-            artifact sourcesJar {
-                classifier "sources"
-            }
+    jacoco {
+        toolVersion = "0.7.0.201403182114"
+    }
 
-            artifact fatJar {
-                classifier "shadow"
-            }
-
-            artifact fatJarWithoutGroovy {
-                classifier "groovyless-shadow"
-            }
+    jacocoTestReport {
+        reports {
+            xml.enabled = true // coveralls plugin depends on xml format report
+            html.enabled = true
         }
     }
 
-    repositories {
-        maven {
-            credentials {
-                username 'deployment'
-                password 'deployment123'
-            }
-            url 'http://nexus.microhackathon.pl/content/repositories/releases/'
+    codenarc {
+        configFile = file('config/codenarc/rules.groovy')
+        maxPriority1Violations = 0
+        maxPriority2Violations = 6
+        maxPriority3Violations = 10
+        reportFormat = 'xml'
+        ignoreFailures = true
+    }
+    
+    dependencies {
+        codenarc 'org.codenarc:CodeNarc:0.21'
+    }
+    
+    test {
+        ignoreFailures = true
+        jacoco {
+            excludes = ['*Configuration']
         }
     }
-}
 
-task sourcesJar(type: Jar, dependsOn: build) {
-    classifier = 'sources'
-    from sourceSets.main.allSource
-}
-
-task fatJar(type: Jar, dependsOn: build) {
-    classifier = "shadow"
-
-    from files(sourceSets.main.output.classesDir)
-    from configurations.runtime.asFileTree.files.collect { zipTree(it) }
-
-    manifest {
-        attributes 'Main-Class': mainClass
-    }
-}
-
-configurations {
-    groovyless
-
-    groovyless {
-        extendsFrom runtime
-        exclude([group: 'org.codehaus.groovy', name: 'groovy-all'])
-    }
-}
-
-task fatJarWithoutGroovy(type: Jar, dependsOn: build) {
-    classifier "groovyless-shadow"
-
-    from files(sourceSets.main.output.classesDir)
-    from configurations.groovyless.asFileTree.files.collect {
-        zipTree(it)
+    sonarRunner {
+        sonarProperties {
+            //TODO: fill this
+            property "sonar.host.url", ""
+            property "sonar.junit.reportsPath", "build/test-results"
+        }
     }
 
-    manifest {
-        attributes 'Main-Class': mainClass
-    }
-}
-
-[sourcesJar, fatJar, fatJarWithoutGroovy]*.onlyIf { artifactTask ->
-    project.gradle.startParameter.taskNames.any {
-        it == artifactTask.name || project.tasks.findByName(it).group == 'publishing'
-    }
 }
